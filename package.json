@@ -1,0 +1,24 @@
+{
+  "name": "stackbound",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stackbound: a creature TCG where 32x32 pixel cards become voxel toys on a 5x5 battle grid",
+  "type": "module",
+  "author": "Virat Reddy Kaukuntla",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite --port 8820",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}
