@@ -403,3 +403,13 @@ input[type=range] { width: 100%; accent-color: var(--red); }
   .duel .btn { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+@media (max-height: 620px) {
+  .title { gap: 12px; overflow: auto; padding-top: 12px; padding-bottom: 12px; }
+  .lb { width: 40px; height: 42px; font-size: 28px; border-radius: 7px; box-shadow: 0 4px 0 var(--ink); }
+  .logo-row.r2 { margin-left: 40px; }
+  .logo-tag { margin-top: 8px; font-size: 15px; }
+  .menu { gap: 8px; }
+  .menu .btn { padding-top: 9px; padding-bottom: 8px; font-size: 15px; }
+  .menu .btn.big { font-size: 17px; }
+  .title-foot { display: none; }
+}
