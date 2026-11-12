@@ -12,7 +12,6 @@ import { animCfg } from '../render/anim';
 import { go, onLeave, stage, topbar } from './app';
 import { startCampaignDuel, startPvp, startQuickDuel } from './battle';
 import { createRoom, NetClient } from '../game/net';
-import { voiceCfg } from '../game/voice';
 import { cardArt, cardBack, familyStrip, renderCard, turntable } from './cardview';
 import { coin, confirmBox, fill, h, modal, toast } from './dom';
 import { ELEM_ICON, ICON, shapeIcon } from './icons';
@@ -369,7 +368,6 @@ export function settingsModal() {
     h('div', { class: 'setting' }, h('span', {}, 'Graphics'), seg(['low', 'medium', 'high'], s.quality, v => { s.quality = v as never; stage.setQuality(s.quality); save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Sound effects'), range(s.sfx, v => { s.sfx = v; setVolumes(s.sfx, s.music); save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Music'), range(s.music, v => { s.music = v; setVolumes(s.sfx, s.music); save(); })),
-    h('div', { class: 'setting' }, h('span', {}, 'Announcer'), range(s.voice ?? 0.9, v => { s.voice = v; voiceCfg.vol = v; save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Animation speed'), seg(['normal', 'fast', 'fastest'], s.speed >= 2 ? 'fastest' : s.speed > 1 ? 'fast' : 'normal', v => { s.speed = v === 'fastest' ? 2.2 : v === 'fast' ? 1.5 : 1; animCfg.speed = s.speed; save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Reduce motion'), seg(['off', 'on'], s.reduceMotion ? 'on' : 'off', v => { s.reduceMotion = v === 'on'; animCfg.reduceMotion = s.reduceMotion; save(); })),
     h('hr', { style: { border: 0, borderTop: '2px dashed rgba(43,29,20,.3)', margin: '16px 0' } }),

@@ -14,7 +14,6 @@ import { clearedCount, opponentDeck, winReward, ZONES, type Opponent } from '../
 import type { NetClient, ServerMsg } from '../game/net';
 import { activeDeck, addCard, canPlayDeck, deckList, P, save } from '../game/profile';
 import { line, type Mood } from '../game/taunts';
-import { say } from '../game/voice';
 import { animCfg, wait } from '../render/anim';
 import { BattleView, type HlKind } from '../render/battleview';
 import { tileWorld } from '../render/stage';
@@ -91,7 +90,6 @@ function runBattle(cfg: BattleCfg) {
   const log: { t: string; p: PlayerId | -1 }[] = [];
   const coachSeen = new Set<number>();
   const oppId = cfg.opponent?.id;
-  let saidTen = false;
   let desperateSaid = false;
   let pendingKeep: number | null = null;
   const lastRects = new Map<number, DOMRect>();
@@ -267,7 +265,6 @@ function runBattle(cfg: BattleCfg) {
       const secs = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       txt += ` · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
       urgent = secs <= 15 && S.active === ME;
-      if (secs <= 10 && S.active === ME && !saidTen) { saidTen = true; say('tenseconds'); }
     }
     if (turnFlag.textContent !== txt) turnFlag.textContent = txt;
     turnFlag.className = 'turnflag label' + (S.active === ME ? '' : ' theirs') + (urgent ? ' urgent' : '');
@@ -594,9 +591,8 @@ function runBattle(cfg: BattleCfg) {
       if (ev.e === 'draw' && ev.p === ME) { drawn.add(ev.uid); sfx.draw(); }
       if (ev.e === 'turn') {
         S = { ...S, active: ev.p, turn: ev.turn };
-        saidTen = false;
         banner(ev.p === ME ? 'Your Turn' : `${foeLabel()}'s Turn`);
-        if (ev.p === ME) { sfx.turnStart(); say('yourturn'); } else say('theirturn');
+        if (ev.p === ME) sfx.turnStart();
         renderEventPlate();
         await wait(500);
       }
@@ -605,7 +601,6 @@ function runBattle(cfg: BattleCfg) {
         S = { ...S, players: S.players.map((pp, i) => i === ev.p ? { ...pp, life: P0.life - ev.n } : pp) as GameState['players'] };
         plaque(ev.p === ME ? mePlaque : foePlaque, ev.p);
         if (ev.e === 'playerHit') {
-          if (P0.life - ev.n <= 0) say('finish', true); else say('direct');
           if (ev.p === AI) { taunt(P0.life - ev.n <= 6 && !desperateSaid ? 'desperate' : 'hurt'); if (P0.life - ev.n <= 6) desperateSaid = true; } else taunt('gloat');
         }
       }
@@ -613,19 +608,14 @@ function runBattle(cfg: BattleCfg) {
       if (ev.e === 'stackOn') { const st = stackById(S, ev.stack) || stackById(after, ev.stack); if (st) await slam(ev.card, ev.p, st.x, st.y, ev.uid); }
       if (ev.e === 'spell' && ev.p !== ME) castShow(ev.card);
       if (ev.e === 'trapSet' && ev.p !== ME) toast(`${foeLabel()} hid a trap somewhere…`);
-      if (ev.e === 'trap' && ev.card) { toast(`Trap! ${card(ev.card).name}`); say('trap'); }
+      if (ev.e === 'trap' && ev.card) { toast(`Trap! ${card(ev.card).name}`); }
       if (ev.e === 'hit' && ev.n > 0 && !ev.spill) {
         const st = stackById(S, ev.stack);
-        if (ev.facing === 'back') { say('back'); if (st) taunt(st.owner === ME ? 'smug' : 'ouch'); }
-        else if (ev.adv) say('super');
-        else if (ev.facing === 'side') say('side');
+        if (ev.facing === 'back' && st) taunt(st.owner === ME ? 'smug' : 'ouch');
       }
-      if (ev.e === 'hit' && ev.n === 0) say('blocked');
       if (ev.e === 'ko') { const st = stackById(S, ev.stack); if (st) taunt(st.owner === ME ? 'gloat' : 'hurt'); }
-      if (ev.e === 'topple') say('toppled');
-      if (ev.e === 'fuse') { say(card(ev.card).stage === 3 ? 'finalform' : 'fusion', true); if (ev.p !== ME) taunt('fuse'); }
-      if (ev.e === 'point' && ev.p === ME) say('gear');
-      if (ev.e === 'boardEvent') { say('event', true); bigBanner(eventName(ev.ev, cfg.arena)); }
+      if (ev.e === 'fuse' && ev.p !== ME) taunt('fuse');
+      if (ev.e === 'boardEvent') { bigBanner(eventName(ev.ev, cfg.arena)); }
       if (ev.e === 'eventSoon') renderEventPlate();
       await view.play(ev, after);
     }
@@ -752,7 +742,7 @@ function runBattle(cfg: BattleCfg) {
       if (m.t === 'start') { S = m.state; deadline = localDeadline(m); view.sync(S); busy = false; renderHud(); continue; }
       if (m.t !== 'events') continue;
       busy = true;
-      if (m.timeout) { say('timeup', true); toast(S.active === ME ? 'Time\'s up! Your turn ended.' : `${foeLabel()} ran out of time.`); }
+      if (m.timeout) { toast(S.active === ME ? 'Time\'s up! Your turn ended.' : `${foeLabel()} ran out of time.`); }
       await playEvents(m.events, m.state);
       S = m.state;
       deadline = localDeadline(m);
@@ -832,7 +822,6 @@ function runBattle(cfg: BattleCfg) {
     await wait(forfeit ? 0 : 900);
     view.celebrate(won ? ME : AI);
     won ? sfx.win() : sfx.lose();
-    say(won ? 'victory' : 'defeat', true);
     if (!net) taunt(won ? 'lose' : 'win');
     if (!forfeit && won) stage.flash(1, 0.95, 0.8, 0.3, 600);
     const nextZoneUnlocked = o?.boss && first && o.zone < 7;
@@ -871,7 +860,6 @@ function runBattle(cfg: BattleCfg) {
     renderHud();
     for (const ev of startEvents) logEvent(ev, S);
     await view.intro(ARENA_NAME[cfg.arena]);
-    say('duel', true);
     banner(cfg.netStart ? (S.active === ME ? 'You go first' : `${foeLabel()} goes first`) : first === ME ? 'You go first' : `${foeLabel()} goes first`);
     if (!net && cfg.opponent) { tauntEl.style.display = ''; tauntEl.textContent = cfg.opponent.quote; tauntEl.classList.add('pop'); tauntTimer = window.setTimeout(() => { tauntEl.style.display = 'none'; }, 3200); }
     sfx.turnStart();

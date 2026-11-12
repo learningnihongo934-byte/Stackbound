@@ -13,7 +13,7 @@ Play it at **https://stackbound.rennko.tech**.
 - **Skills, gears and events**: every creature has a once-per-turn skill (Dash, Zap, Guard, Whirl…). Two brass gears in the middle row give +1 energy to whoever holds them. Every 5 turns a telegraphed board event hits (a cat's paw swipes a row, a draft shoves everything, glitter rains).
 - **Campaign**: 8 zones, each its own playset arena (Toy Chest, Bookshelf, Dollhouse, Train Set, Music Box, Lamp Corner, Window Sill, Old Trunk), each with 3 duels and a boss. Opponents taunt and react.
 - **Play a Friend**: room-code PvP with 60-second turns. A Durable Object runs the same rules engine on the server, so hidden cards and traps never reach the other player.
-- **Juice**: animated voxel toys (walking, head-turning, wing-flapping, sleeping, reaction bubbles), hit-stop, camera punches, slow-motion knockouts, letterboxed fusion cinematics, slam-down summons, drag-to-play, holo cards, layered battle music and an announcer (voiced locally with Kokoro via rat.audio).
+- **Juice**: animated voxel toys (walking, head-turning, wing-flapping, sleeping, reaction bubbles), hit-stop, camera punches, slow-motion knockouts, letterboxed fusion cinematics, slam-down summons, drag-to-play, holo cards and layered battle music.
 - **Collection**: earn Buttons by winning to open packs, recycle extra copies into Stuffing, and craft any card. The deck builder has a mana curve and validation.
 - **Saving**: everything is saved in the browser. Google sign-in (through Rennko Cloud) adds a backup that syncs across devices.
 
