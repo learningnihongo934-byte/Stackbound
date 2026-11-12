@@ -51,8 +51,24 @@ export function renderCard(id: string, o: CardOpts = {}): HTMLElement {
   if (o.count !== undefined) el.appendChild(h('span', { class: 'count' }, '×' + o.count));
   if (o.isNew) el.appendChild(h('span', { class: 'newtag' }, 'NEW'));
   if (o.onClick) el.addEventListener('click', o.onClick);
+  if (o.onClick) holo(el);
   el.dataset.id = id;
   return el;
+}
+
+/** Tilt toward the pointer with a moving light sheen (holo cards). */
+export function holo(el: HTMLElement) {
+  if (!matchMedia('(hover: hover)').matches) return;
+  const inner = el.querySelector('.c-in') as HTMLElement | null;
+  el.addEventListener('pointermove', e => {
+    const r = el.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+    el.style.setProperty('--mx', (px * 100).toFixed(1) + '%');
+    el.style.setProperty('--my', (py * 100).toFixed(1) + '%');
+    el.classList.add('holo-on');
+    if (inner) inner.style.transform = `perspective(700px) rotateX(${((0.5 - py) * 14).toFixed(2)}deg) rotateY(${((px - 0.5) * 16).toFixed(2)}deg)`;
+  });
+  el.addEventListener('pointerleave', () => { el.classList.remove('holo-on'); if (inner) inner.style.transform = ''; });
 }
 
 export function cardBack(w?: number): HTMLElement {

@@ -8,7 +8,7 @@ import type { Action, GameState, Stack } from '../src/engine/types';
 const blank = () => newMatch({ seed: 42, decks: [STARTERS[0].deck, STARTERS[1].deck], names: ['A', 'B'], first: 0 }).state;
 
 function put(s: GameState, owner: 0 | 1, x: number, y: number, cards: string[], dir: 0 | 1 | 2 | 3 = owner === 0 ? 0 : 2): Stack {
-  const st: Stack = { id: s.nextId++, owner, x, y, dir, units: cards.map(c => ({ uid: s.nextId++, card: c, hp: card(c).hp!, gear: null })), ap: 2, moved: false, frozen: 0, attacked: false };
+  const st: Stack = { id: s.nextId++, owner, x, y, dir, units: cards.map(c => ({ uid: s.nextId++, card: c, hp: card(c).hp!, gear: null })), ap: 2, moved: false, frozen: 0, attacked: false, guard: 0, skilled: false, bonusAp: 0 };
   s.stacks.push(st);
   return st;
 }
@@ -129,6 +129,53 @@ describe('rules', () => {
   it('every legal action applies cleanly', () => {
     const s = blank();
     for (const a of legalActions(s)) expect(() => apply(s, a)).not.toThrow();
+  });
+});
+
+describe('skills, events, points', () => {
+  it('dash charges 2 tiles and uses 1 action once per turn', () => {
+    const s = blank(); s.stacks = []; s.active = 0;
+    const st = put(s, 0, 2, 0, ['matchpup']);
+    const r = apply(s, { k: 'skill', stack: st.id }, true).state;
+    const a = r.stacks[0];
+    expect([a.x, a.y, a.ap, a.skilled]).toEqual([2, 2, 1, true]);
+    expect(legalActions(r).some(x => x.k === 'skill')).toBe(false);
+  });
+  it('zap hits within 2 tiles and costs energy', () => {
+    const s = blank(); s.stacks = []; s.active = 0; s.players[0].energy = 3;
+    const st = put(s, 0, 2, 1, ['candlewick']);
+    put(s, 1, 4, 3, ['bathduck']);
+    const r = apply(s, { k: 'skill', stack: st.id, x: 4, y: 3 }).state;
+    expect(r.stacks.find(t => t.owner === 1)!.units[0].hp).toBe(2);
+    expect(r.players[0].energy).toBe(2);
+  });
+  it('whirl turns for free', () => {
+    const s = blank(); s.stacks = []; s.active = 0;
+    const st = put(s, 0, 2, 1, ['twirla']);
+    const r = apply(s, { k: 'skill', stack: st.id, dir: 1 }).state;
+    expect([r.stacks[0].dir, r.stacks[0].ap]).toEqual([1, 2]);
+  });
+  it('brace adds armor until the owner\'s next turn', () => {
+    const s = blank(); s.stacks = []; s.active = 0;
+    const st = put(s, 0, 2, 1, ['glimmersnail']);
+    let r = apply(s, { k: 'skill', stack: st.id }).state;
+    expect(mods(r, r.stacks[0]).armor).toBe(4);
+    r = apply(r, { k: 'end' }).state;
+    expect(mods(r, r.stacks[0]).armor).toBe(4);
+    r = apply(r, { k: 'end' }).state;
+    expect(mods(r, r.stacks[0]).armor).toBe(2);
+  });
+  it('control points give energy at turn start', () => {
+    const s = blank(); s.stacks = []; s.active = 1;
+    put(s, 0, 1, 2, ['marblet']);
+    const r = apply(s, { k: 'end' }, true);
+    expect(r.events.some(e => e.e === 'point' && e.p === 0 && e.n === 1)).toBe(true);
+  });
+  it('a board event is always scheduled and resolves on its turn', () => {
+    let s = blank();
+    expect(s.event?.turn).toBe(5);
+    while (s.turn < 5) s = apply(s, { k: 'end' }).state;
+    expect(s.event?.turn).toBe(10);
   });
 });
 

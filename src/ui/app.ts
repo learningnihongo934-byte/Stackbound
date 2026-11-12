@@ -13,7 +13,7 @@ let showcase: BattleView | null = null;
 let current: (() => void) | null = null;
 export const setStage = (s: Stage) => { stage = s; };
 
-export function go(render: () => HTMLElement, opts: { mode?: 'menu' | 'board'; music?: 'menu' | 'battle' | 'off'; keepShowcase?: boolean } = {}) {
+export function go(render: () => HTMLElement, opts: { mode?: 'menu' | 'board'; music?: 'menu' | 'battle' | 'boss' | 'off'; keepShowcase?: boolean } = {}) {
   current?.();
   current = null;
   const ui = $('#ui');

@@ -1,4 +1,4 @@
-import type { CardDef, Elem } from './types';
+import type { CardDef, Elem, SkillId } from './types';
 
 // The v1 set: 64 cards.
 //   10 evolution families x 3 stages (Stage 1 in the main deck, Stage 2/3 in the Evolution pile)
@@ -200,6 +200,30 @@ const C: CardDef[] = [
     text: 'The lead\'s attack becomes Line with Range 3 and Pierce. +1 Power.', flavor: 'A hat pin, lovingly sharpened.' },
 ];
 
+export interface SkillDef { id: SkillId; name: string; energy: number; ap: number; text: string }
+export const SKILLS: Record<SkillId, SkillDef> = {
+  dash: { id: 'dash', name: 'Dash', energy: 0, ap: 1, text: 'Charge up to 2 tiles straight ahead.' },
+  taunt: { id: 'taunt', name: 'Taunt', energy: 1, ap: 1, text: 'Adjacent enemies turn to face this stack.' },
+  swap: { id: 'swap', name: 'Swap', energy: 0, ap: 1, text: 'Trade places with an adjacent ally.' },
+  guard: { id: 'guard', name: 'Guard', energy: 1, ap: 1, text: 'This stack and adjacent allies get Armor +1 until your next turn.' },
+  mend: { id: 'mend', name: 'Mend', energy: 1, ap: 1, text: 'Heal 2 to this stack and each adjacent ally.' },
+  zap: { id: 'zap', name: 'Zap', energy: 1, ap: 1, text: 'Deal 2 damage to an enemy within 2 tiles, any direction.' },
+  bump: { id: 'bump', name: 'Bump', energy: 0, ap: 1, text: 'Push the enemy in front 1 tile back.' },
+  rally: { id: 'rally', name: 'Rally', energy: 1, ap: 1, text: 'Each adjacent ally gets +1 action this turn.' },
+  whirl: { id: 'whirl', name: 'Whirl', energy: 0, ap: 0, text: 'Turn to face any direction for free.' },
+  brace: { id: 'brace', name: 'Brace', energy: 0, ap: 1, text: 'Get Armor +2 until your next turn.' },
+};
+const SKILL_OF: Record<string, SkillId> = {
+  matchpup: 'dash', kilnhound: 'dash', furnacebrute: 'taunt', candlewick: 'zap', waxwarden: 'brace', chandelord: 'zap',
+  bathduck: 'mend', tubdrake: 'mend', leviathub: 'taunt', globjelly: 'zap', domejelly: 'zap', abyssglobe: 'whirl',
+  feltfrog: 'dash', quiltoad: 'swap', patchking: 'rally', sproutpot: 'brace', thornpot: 'taunt', arborpot: 'guard',
+  battbug: 'rally', voltbeetle: 'dash', gigascarab: 'whirl', lampmoth: 'whirl', bulbmoth: 'zap', arclight: 'zap',
+  marblet: 'bump', rollgolem: 'dash', monolith: 'guard', twirla: 'whirl', prismelle: 'whirl', celestelle: 'mend',
+  sparkjack: 'zap', spritzfin: 'bump', mossbear: 'guard', ziprover: 'dash', dominoknight: 'bump', rookwall: 'guard',
+  piggyvault: 'brace', prismkite: 'swap', kaleidowl: 'whirl', glimmersnail: 'brace',
+};
+for (const c of C) if (c.kind === 'creature') c.skill = SKILL_OF[c.id];
+
 export const CARDS: Record<string, CardDef> = Object.fromEntries(C.map(c => [c.id, c]));
 export const ALL_CARDS = C;
 export const card = (id: string): CardDef => {
@@ -244,6 +268,7 @@ export function rulesText(c: CardDef): string[] {
   const out: string[] = [];
   if (c.kind === 'creature') {
     if (c.text) out.push(c.text);
+    if (c.skill) { const sk = SKILLS[c.skill]; out.push(`Skill — ${sk.name}${sk.energy ? ` (${sk.energy})` : ''}: ${sk.text}`); }
     for (const k of c.kw || []) out.push(KEYWORD_TEXT[k]);
     if (c.armor) out.push(`Armor ${c.armor}: takes ${c.armor} less damage from each hit.`);
     if (c.thorns) out.push(`Thorns ${c.thorns}: adjacent attackers take ${c.thorns} damage.`);

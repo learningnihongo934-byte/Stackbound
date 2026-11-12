@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { getModel } from '../art/models';
 import { N, vget, type MatClass, type VoxelModel } from '../art/voxel';
 
-export const VOX = 1.0 / 24; // world size of one voxel for a lead creature
+export const VOX = 1.2 / 24; // world size of one voxel for a lead creature
 
 const FACES: { n: [number, number, number]; c: [number, number, number][] }[] = [
   { n: [1, 0, 0], c: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]] },
@@ -106,12 +106,52 @@ export function makeMaterials(classes: MatClass[]): THREE.Material[] {
   });
 }
 
-export function voxelMesh(id: string): { mesh: THREE.Mesh; height: number; width: number } {
+/** Per-toy animation uniforms (shared by all of one toy's materials). */
+export interface ToyUniforms {
+  uTime: { value: number }; uYaw: { value: number }; uWalk: { value: number }; uFlap: { value: number };
+  uHeadY: { value: number }; uLegY: { value: number }; uWingX: { value: number }; uLean: { value: number }; uPhase: { value: number };
+}
+export function toyUniforms(height: number, winged: boolean): ToyUniforms {
+  return {
+    uTime: { value: 0 }, uYaw: { value: 0 }, uWalk: { value: 0 }, uFlap: { value: winged ? 0.6 : 0 },
+    uHeadY: { value: height * 0.56 }, uLegY: { value: height * 0.2 }, uWingX: { value: winged ? 0.12 : 99 }, uLean: { value: 0 }, uPhase: { value: Math.random() * 6 },
+  };
+}
+const TOY_VERT = `
+  {
+    float y = transformed.y;
+    float hk = smoothstep(uHeadY, uHeadY + 0.08, y);
+    float ca = cos(uYaw * hk), sa = sin(uYaw * hk);
+    transformed.xz = mat2(ca, sa, -sa, ca) * transformed.xz;
+    float lk = 1.0 - smoothstep(0.0, uLegY, y);
+    float st = sin(uTime * 15.0 + sign(transformed.x) * 3.1416);
+    transformed.z += st * 0.05 * uWalk * lk;
+    transformed.y += max(0.0, st) * 0.035 * uWalk * lk;
+    float wk = smoothstep(uWingX, uWingX + 0.1, abs(transformed.x));
+    transformed.y += sin(uTime * 11.0 + uPhase) * uFlap * wk * (abs(transformed.x) - uWingX) * 0.9;
+    transformed.z += uLean * y;
+  }`;
+function animate(mats: THREE.Material[], U: ToyUniforms) {
+  for (const m of mats) {
+    m.onBeforeCompile = shader => {
+      Object.assign(shader.uniforms, U);
+      shader.vertexShader = 'uniform float uTime, uYaw, uWalk, uFlap, uHeadY, uLegY, uWingX, uLean, uPhase;\n' +
+        shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>' + TOY_VERT);
+    };
+    m.customProgramCacheKey = () => 'toy-anim';
+  }
+}
+const WINGED = new Set(['lampmoth', 'bulbmoth', 'arclight', 'prismkite', 'kaleidowl', 'tubdrake']);
+
+export function voxelMesh(id: string, anim = false): { mesh: THREE.Mesh; height: number; width: number; uniforms?: ToyUniforms } {
   const g = voxelGeometry(id);
-  const mesh = new THREE.Mesh(g.geo, makeMaterials(g.classes));
+  const mats = makeMaterials(g.classes);
+  let uniforms: ToyUniforms | undefined;
+  if (anim) { uniforms = toyUniforms(g.height, WINGED.has(id)); animate(mats, uniforms); }
+  const mesh = new THREE.Mesh(g.geo, mats);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  return { mesh, height: g.height, width: g.width };
+  return { mesh, height: g.height, width: g.width, uniforms };
 }
 
 /** Voxel centres (local, same frame as the mesh) and colours, for particle effects. */

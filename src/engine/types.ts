@@ -9,6 +9,10 @@ export type Dir = 0 | 1 | 2 | 3; // 0 = N (+y, toward player 1), 1 = E (+x), 2 =
 export type PlayerId = 0 | 1;
 export type Facing = 'front' | 'side' | 'back';
 
+export type SkillId = 'dash' | 'taunt' | 'swap' | 'guard' | 'mend' | 'zap' | 'bump' | 'rally' | 'whirl' | 'brace';
+export type EventKind = 'draft' | 'paw' | 'glitter' | 'windup' | 'cleanup';
+export interface BoardEvent { kind: EventKind; turn: number; row?: number; dir?: Dir }
+
 /** Keywords a lead creature can have. */
 export type Keyword = 'swift' | 'hop' | 'pierce' | 'charge' | 'heavy' | 'burst';
 
@@ -61,6 +65,7 @@ export interface CardDef {
   support?: SupportFx;
   supportText?: string;
   onPlay?: Effect;
+  skill?: SkillId;
   // spells
   target?: SpellTarget;
   fx?: Effect;
@@ -87,6 +92,9 @@ export interface Stack {
   moved: boolean;
   frozen: number;
   attacked: boolean;
+  guard: number;
+  skilled: boolean;
+  bonusAp: number;
 }
 
 export interface Trap { owner: PlayerId; card: string; uid: number }
@@ -115,6 +123,7 @@ export interface GameState {
   tiles: Tile[];
   nextId: number;
   winner: PlayerId | 'draw' | null;
+  event: BoardEvent | null;
 }
 
 export interface DeckList { main: string[]; evo: string[] }
@@ -130,7 +139,8 @@ export type Action =
   | { k: 'move'; stack: number; x: number; y: number }
   | { k: 'turn'; stack: number; dir: Dir }
   | { k: 'attack'; stack: number; x?: number; y?: number; player?: boolean }
-  | { k: 'fuse'; stack: number };
+  | { k: 'fuse'; stack: number }
+  | { k: 'skill'; stack: number; x?: number; y?: number; dir?: Dir };
 
 export type Ev =
   | { e: 'turn'; p: PlayerId; turn: number }
@@ -160,6 +170,11 @@ export type Ev =
   | { e: 'freeze'; stack: number }
   | { e: 'refresh'; stack: number; n: number }
   | { e: 'blocked'; stack: number }
+  | { e: 'skill'; stack: number; skill: SkillId; x?: number; y?: number }
+  | { e: 'guard'; stack: number; n: number }
+  | { e: 'point'; p: PlayerId; n: number }
+  | { e: 'eventSoon'; ev: BoardEvent }
+  | { e: 'boardEvent'; ev: BoardEvent }
   | { e: 'win'; p: PlayerId | 'draw' };
 
 export interface Mods {

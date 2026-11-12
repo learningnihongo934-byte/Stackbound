@@ -19,7 +19,7 @@ export interface Profile {
   starter: string | null;
   cleared: Record<string, number>;
   stats: { wins: number; losses: number; packs: number; duels: number; crafted: number };
-  settings: { quality: Quality; sfx: number; music: number; speed: number; reduceMotion: boolean };
+  settings: { quality: Quality; sfx: number; music: number; voice: number; speed: number; reduceMotion: boolean };
   tutorial: boolean;
   seenRules: boolean;
 }
@@ -33,7 +33,7 @@ function fresh(): Profile {
   return {
     v: 1, updatedAt: Date.now(), name: 'Player', buttons: 0, stuffing: 0, coll: {}, foil: {}, decks: [], active: '', starter: null, cleared: {},
     stats: { wins: 0, losses: 0, packs: 0, duels: 0, crafted: 0 },
-    settings: { quality: lowEnd ? 'medium' : 'high', sfx: 0.8, music: 0.45, speed: 1, reduceMotion: false },
+    settings: { quality: lowEnd ? 'medium' : 'high', sfx: 0.8, music: 0.45, voice: 0.9, speed: 1, reduceMotion: false },
     tutorial: false, seenRules: false,
   };
 }
@@ -41,7 +41,7 @@ function fresh(): Profile {
 function load(): Profile {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...fresh(), ...JSON.parse(raw) };
+    if (raw) { const f = fresh(); const p = JSON.parse(raw); return { ...f, ...p, settings: { ...f.settings, ...(p.settings || {}) } }; }
   } catch { /* private mode */ }
   return fresh();
 }

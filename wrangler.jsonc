@@ -1,8 +1,11 @@
 {
-  // Stackbound web game: static assets only, served from dist/ (./build.sh deploy)
+  // Stackbound: static game (dist/) + PvP rooms (Durable Objects). ./build.sh deploy
   "name": "stackbound",
+  "main": "src/server/worker.ts",
   "compatibility_date": "2025-10-01",
-  "assets": { "directory": "dist", "not_found_handling": "single-page-application" },
+  "assets": { "directory": "dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
   // stackbound.rennko.tech/* is more specific than Rennko Cloud's *.rennko.tech/* route, so this host stays here
   "routes": [{ "pattern": "stackbound.rennko.tech", "custom_domain": true }, { "pattern": "stackbound.rennko.tech/*", "zone_name": "rennko.tech" }],
   "workers_dev": true

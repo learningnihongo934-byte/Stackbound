@@ -1,6 +1,7 @@
 import './ui/styles.css';
 import { ALL_CARDS } from './engine/cards';
 import { setVolumes, unlockAudio } from './game/audio';
+import { preloadVoice, voiceCfg } from './game/voice';
 import { cloudInit } from './game/cloud';
 import { P } from './game/profile';
 import { animCfg, runTicks } from './render/anim';
@@ -23,14 +24,16 @@ async function boot() {
   animCfg.speed = P.settings.speed;
   animCfg.reduceMotion = P.settings.reduceMotion;
   setVolumes(P.settings.sfx, P.settings.music);
+  voiceCfg.vol = P.settings.voice ?? 0.9;
   const stage = new Stage($('#stage'));
   stage.setQuality(P.settings.quality);
   setStage(stage);
+  if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).SBstage = stage;
   await document.fonts?.ready.catch(() => {});
   titleScreen();
   setTimeout(() => $('#boot').classList.add('gone'), 250);
   setTimeout(() => $('#boot').remove(), 1000);
-  window.addEventListener('pointerdown', unlockAudio, { once: true });
+  window.addEventListener('pointerdown', () => { unlockAudio(); preloadVoice(); }, { once: true });
   cloudInit();
   // warm the card art + meshes in idle time so the collection and first battle open instantly
   const ids = ALL_CARDS.map(c => c.id);

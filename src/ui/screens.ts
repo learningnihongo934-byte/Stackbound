@@ -10,7 +10,9 @@ import {
 } from '../game/profile';
 import { animCfg } from '../render/anim';
 import { go, onLeave, stage, topbar } from './app';
-import { startCampaignDuel, startQuickDuel } from './battle';
+import { startCampaignDuel, startPvp, startQuickDuel } from './battle';
+import { createRoom, NetClient } from '../game/net';
+import { voiceCfg } from '../game/voice';
 import { cardArt, cardBack, familyStrip, renderCard, turntable } from './cardview';
 import { coin, confirmBox, fill, h, modal, toast } from './dom';
 import { ELEM_ICON, ICON, shapeIcon } from './icons';
@@ -46,6 +48,7 @@ export function titleScreen() {
         h('div', { class: 'row' },
           h('button', { class: 'btn blue', onclick: () => { unlockAudio(); if (!P.starter) return starterScreen(); quickDuelModal(); } }, 'Quick Duel'),
           h('button', { class: 'btn', onclick: () => { unlockAudio(); P.starter ? packsScreen() : starterScreen(); } }, 'Packs', canPack ? h('span', { class: 'sub' }, '●') : null)),
+        h('button', { class: 'btn plum', onclick: () => { unlockAudio(); if (!P.starter) return starterScreen(); friendModal(); } }, 'Play a Friend', h('span', { class: 'sub' }, 'Room code')),
         h('div', { class: 'row' },
           h('button', { class: 'btn green', onclick: () => { unlockAudio(); collectionScreen(); } }, 'Collection'),
           h('button', { class: 'btn paper', onclick: () => { unlockAudio(); P.starter ? decksScreen() : starterScreen(); } }, 'Decks')),
@@ -134,6 +137,50 @@ function quickDuelModal() {
     h('div', { class: 'setting' }, h('span', {}, 'Opponent'), segs),
     h('div', { class: 'setting' }, h('span', {}, 'Your deck'), h('span', {}, activeDeck()?.name || 'None')),
     h('div', { class: 'actions' }, h('button', { class: 'btn red big', onclick: () => { m.close(); startQuickDuel(level as 0 | 1 | 2 | 3); } }, 'Duel!'))));
+}
+
+// ---------------------------------------------------------------- PvP lobby
+function friendModal() {
+  const deck = activeDeck();
+  const problems = deck ? deckProblems(deck) : ['No deck'];
+  if (problems.length) { toast('Your active deck isn\'t ready. Fix it in Decks.'); decksScreen(); return; }
+  let net: NetClient | null = null;
+  const body = h('div', { class: 'lobby' });
+  const nameIn = h('input', { value: P.name && P.name !== 'Player' ? P.name : '', placeholder: 'Your name', maxlength: '16', style: { fontFamily: 'var(--f-display)', fontSize: '20px', letterSpacing: '0', textTransform: 'none' } }) as HTMLInputElement;
+  const getName = () => { const n = nameIn.value.trim() || 'Player'; if (n !== P.name) { P.name = n; save(); } return n; };
+  const m = modal(body, { onClose: () => { if (net && !started) net.close(); } });
+  let started = false;
+  const connect = (code: string, creating: boolean) => {
+    net = new NetClient(code, getName(), { main: deck!.main, evo: deck!.evo });
+    const off = net.on(msg => {
+      if (msg.t === 'error') { toast(msg.msg); if (msg.fatal) { off(); net?.close(); net = null; home(); } return; }
+      if (msg.t === 'lobby') waiting(code, creating);
+      if (msg.t === 'start') { started = true; off(); m.close(); startPvp(net!, msg); }
+    });
+    net.connect();
+    waiting(code, creating);
+  };
+  const waiting = (code: string, creating: boolean) => fill(body,
+    h('h2', {}, creating ? 'Room ready' : 'Joining…'),
+    h('div', { class: 'code' }, code),
+    creating ? h('p', { style: { margin: 0, textAlign: 'center' } }, 'Send this code to your friend. The duel starts as soon as they join.') : null,
+    h('div', { class: 'wait' }, h('div', { class: 'boot-blocks', style: { transform: 'scale(.6)' } }, h('i', {}), h('i', {}), h('i', {}), h('i', {})), creating ? 'Waiting for your friend…' : 'Connecting…'),
+    creating ? h('button', { class: 'btn paper', onclick: () => { navigator.clipboard?.writeText(code).then(() => toast('Code copied.')); } }, 'Copy code') : null);
+  const home = () => {
+    const codeIn = h('input', { placeholder: 'CODE', maxlength: '5', autocapitalize: 'characters' }) as HTMLInputElement;
+    codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z]/g, ''); });
+    fill(body,
+      h('h2', {}, 'Play a Friend'),
+      h('p', { style: { margin: 0 } }, `You'll play with your active deck: ${deck!.name}. Turns last 60 seconds.`),
+      nameIn,
+      h('button', { class: 'btn big red', onclick: async () => {
+        try { const code = await createRoom(); connect(code, true); } catch (e) { toast((e as Error).message || 'Could not make a room.'); }
+      } }, 'Create a room'),
+      h('div', { style: { textAlign: 'center', fontWeight: '800', color: 'var(--ink2)' } }, 'or join one'),
+      h('div', { class: 'row' }, codeIn, h('button', { class: 'btn blue', onclick: () => { const c = codeIn.value.trim(); if (c.length !== 5) { toast('Codes are 5 letters.'); return; } connect(c, false); } }, 'Join')));
+    setTimeout(() => (nameIn.value ? codeIn : nameIn).focus(), 50);
+  };
+  home();
 }
 
 // ---------------------------------------------------------------- collection
@@ -322,6 +369,7 @@ export function settingsModal() {
     h('div', { class: 'setting' }, h('span', {}, 'Graphics'), seg(['low', 'medium', 'high'], s.quality, v => { s.quality = v as never; stage.setQuality(s.quality); save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Sound effects'), range(s.sfx, v => { s.sfx = v; setVolumes(s.sfx, s.music); save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Music'), range(s.music, v => { s.music = v; setVolumes(s.sfx, s.music); save(); })),
+    h('div', { class: 'setting' }, h('span', {}, 'Announcer'), range(s.voice ?? 0.9, v => { s.voice = v; voiceCfg.vol = v; save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Animation speed'), seg(['normal', 'fast', 'fastest'], s.speed >= 2 ? 'fastest' : s.speed > 1 ? 'fast' : 'normal', v => { s.speed = v === 'fastest' ? 2.2 : v === 'fast' ? 1.5 : 1; animCfg.speed = s.speed; save(); })),
     h('div', { class: 'setting' }, h('span', {}, 'Reduce motion'), seg(['off', 'on'], s.reduceMotion ? 'on' : 'off', v => { s.reduceMotion = v === 'on'; animCfg.reduceMotion = s.reduceMotion; save(); })),
     h('hr', { style: { border: 0, borderTop: '2px dashed rgba(43,29,20,.3)', margin: '16px 0' } }),
@@ -351,7 +399,11 @@ export function rulesModal() {
     h('p', {}, 'Damage hits the lead first. When the lead falls, leftover damage spills into the creature below. When the last creature falls, the stack topples.'),
     h('h3', {}, '7. Fuse to evolve'),
     h('p', {}, 'When the top two creatures of a stack are the same family and stage, you can ', h('b', {}, 'Fuse'), ' them into the next stage from your Evolution pile. Two Stage 1s make a Stage 2, and a Stage 2 plus a Stage 1 makes a Stage 3. Fusing frees a slot, so you can stack again.'),
-    h('h3', {}, '8. Spells, traps, terrain, gear'),
+    h('h3', {}, '8. Skills'),
+    h('p', {}, 'Every creature has a ', h('b', {}, 'Skill'), ' (Dash, Zap, Guard, Whirl…), usable once per turn from the action bar. Most cost 1 action and some cost energy. Whirl turns you for free.'),
+    h('h3', {}, '9. Brass gears and board events'),
+    h('p', {}, 'The two ', h('b', {}, 'brass gears'), ' in the middle row give +1 energy at the start of your turn if you stand on them. Every 5 turns a ', h('b', {}, 'board event'), ' happens: a paw swipes a row, a draft pushes everything, glitter rains down. The note at the top right warns you in advance.'),
+    h('h3', {}, '10. Spells, traps, terrain, gear'),
     h('p', {}, h('b', {}, 'Spells'), ' happen once. ', h('b', {}, 'Traps'), ' hide face-down: snares trigger when an enemy steps on them, counters when the stack above is attacked. ', h('b', {}, 'Terrain'), ' gives a matching lead +1 Power and +1 Armor. ', h('b', {}, 'Gear'), ' straps onto your lead.'),
     h('h3', {}, 'Keywords'),
     h('div', {}, Object.values(KEYWORD_TEXT).map(t => h('p', { style: { fontSize: '14.5px' } }, h('b', {}, t.split(':')[0] + ':'), t.slice(t.indexOf(':') + 1)))),

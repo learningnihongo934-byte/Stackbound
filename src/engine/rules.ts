@@ -1,8 +1,8 @@
 // Stackbound rules engine. Pure and deterministic: apply(state, action) -> { state, events }.
 // The renderer never mutates game state; it only plays back the events.
-import { card, BEATS, nextStage } from './cards';
+import { card, BEATS, nextStage, SKILLS, ELEMS } from './cards';
 import type {
-  Action, AttackOption, CardRef, DeckList, Dir, Elem, Ev, Facing, GameState, Mods, PlayerId, PlayerState, Stack, Unit,
+  Action, AttackOption, BoardEvent, CardRef, DeckList, Dir, Elem, EventKind, Ev, Facing, GameState, Mods, PlayerId, PlayerState, Stack, Unit,
 } from './types';
 
 export const W = 5, H = 5;
@@ -12,6 +12,11 @@ export const HAND_LIMIT = 9;
 export const MAX_TRAPS = 3;
 export const STORM_TURN = 40;
 export const DIRV: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+/** Brass-gear control points: holding one at the start of your turn gives +1 energy. */
+export const POINTS: [number, number][] = [[1, 2], [3, 2]];
+export const EVENT_EVERY = 5;
+export const isPoint = (x: number, y: number) => POINTS.some(([px, py]) => px === x && py === y);
+export const pointsHeld = (s: GameState, p: PlayerId) => POINTS.filter(([x, y]) => stackAt(s, x, y)?.owner === p).length;
 
 export const inB = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H;
 export const tileIdx = (x: number, y: number) => y * W + x;
@@ -74,6 +79,7 @@ export function mods(s: GameState, st: Stack): Mods {
   }
   if (kw.includes('charge') && st.moved) m.power += 2;
   if (m.shape === 'lob') m.range = Math.max(2, m.range);
+  m.armor += st.guard || 0;
   m.power = Math.max(0, m.power);
   return m;
 }
@@ -239,11 +245,43 @@ export function legalActions(s: GameState): Action[] {
     const f = fuseTarget(s, st);
     if (f && f.cost <= P.energy) out.push({ k: 'fuse', stack: st.id });
     if (st.ap <= 0) continue;
+    out.push(...skillActions(s, st));
     for (const [x, y] of moveTiles(s, st)) out.push({ k: 'move', stack: st.id, x, y });
     for (const dir of [0, 1, 2, 3] as Dir[]) if (dir !== st.dir) out.push({ k: 'turn', stack: st.id, dir });
     for (const o of attackOptions(s, st)) out.push(o.player ? { k: 'attack', stack: st.id, player: true } : { k: 'attack', stack: st.id, x: o.x, y: o.y });
   }
   return out;
+}
+
+const ADJ4 = (s: GameState, st: Stack) => DIRV.map(([dx, dy]) => stackAt(s, st.x + dx, st.y + dy)).filter((t): t is Stack => !!t);
+
+export function skillActions(s: GameState, st: Stack): Action[] {
+  const id = card(lead(st).card).skill;
+  if (!id || st.skilled || st.ap <= 0) return [];
+  const sk = SKILLS[id];
+  if (s.players[st.owner].energy < sk.energy || st.ap < sk.ap) return [];
+  const [fx, fy] = DIRV[st.dir];
+  const out: Action[] = [];
+  const adj = ADJ4(s, st);
+  const enemyMovable = (t: Stack) => { const m = mods(s, t); return !m.heavy && !m.anchor; };
+  switch (id) {
+    case 'dash': if (inB(st.x + fx, st.y + fy) && !stackAt(s, st.x + fx, st.y + fy)) out.push({ k: 'skill', stack: st.id }); break;
+    case 'taunt': if (adj.some(t => t.owner !== st.owner && enemyMovable(t) && faceToward(t, st) !== t.dir)) out.push({ k: 'skill', stack: st.id }); break;
+    case 'swap': for (const t of adj) if (t.owner === st.owner) out.push({ k: 'skill', stack: st.id, x: t.x, y: t.y }); break;
+    case 'guard': case 'brace': out.push({ k: 'skill', stack: st.id }); break;
+    case 'mend': if ([st, ...adj.filter(t => t.owner === st.owner)].some(t => t.units.some(u => u.hp < maxHp(u)))) out.push({ k: 'skill', stack: st.id }); break;
+    case 'zap': for (const t of s.stacks) if (t.owner !== st.owner && Math.max(Math.abs(t.x - st.x), Math.abs(t.y - st.y)) <= 2) out.push({ k: 'skill', stack: st.id, x: t.x, y: t.y }); break;
+    case 'bump': { const t = stackAt(s, st.x + fx, st.y + fy); if (t && t.owner !== st.owner && enemyMovable(t)) out.push({ k: 'skill', stack: st.id }); break; }
+    case 'rally': if (adj.some(t => t.owner === st.owner)) out.push({ k: 'skill', stack: st.id }); break;
+    case 'whirl': for (const d of [0, 1, 2, 3] as Dir[]) if (d !== st.dir) out.push({ k: 'skill', stack: st.id, dir: d }); break;
+  }
+  return out;
+}
+
+/** The facing that points `t` at `at`. */
+export function faceToward(t: { x: number; y: number }, at: { x: number; y: number }): Dir {
+  const dx = at.x - t.x, dy = at.y - t.y;
+  return (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 0 : 2)) as Dir;
 }
 
 export const actionKey = (a: Action) => JSON.stringify(a, Object.keys(a).sort());
@@ -255,7 +293,7 @@ export function newMatch(cfg: MatchConfig): { state: GameState; events: Ev[] } {
   const s: GameState = {
     rng: cfg.seed | 0 || 1, turn: 0, first: cfg.first, active: cfg.first,
     players: [null as unknown as PlayerState, null as unknown as PlayerState],
-    stacks: [], tiles: Array.from({ length: W * H }, () => ({ terrain: null, trap: null })), nextId: 1, winner: null,
+    stacks: [], tiles: Array.from({ length: W * H }, () => ({ terrain: null, trap: null })), nextId: 1, winner: null, event: null,
   };
   for (const p of [0, 1] as PlayerId[]) {
     const d = cfg.decks[p];
@@ -280,6 +318,7 @@ export function newMatch(cfg: MatchConfig): { state: GameState; events: Ev[] } {
   }
   const events: Ev[] = [];
   for (const p of [0, 1] as PlayerId[]) for (let i = 0; i < 5; i++) draw(s, p, events);
+  scheduleEvent(s, EVENT_EVERY, events);
   startTurn(s, cfg.first, events);
   return { state: s, events };
 }
@@ -317,6 +356,13 @@ function startTurn(s: GameState, p: PlayerId, ev: Ev[]) {
   P.maxEnergy = Math.min(10, P.turns);
   P.energy = P.maxEnergy;
   ev.push({ e: 'turn', p, turn: s.turn });
+  const held = pointsHeld(s, p);
+  if (held) { P.energy += held; ev.push({ e: 'point', p, n: held }); }
+  if (s.event && s.event.turn === s.turn) {
+    resolveEvent(s, s.event, ev);
+    scheduleEvent(s, s.turn + EVENT_EVERY, ev);
+    if (s.winner !== null) return;
+  }
   if (s.turn > 1) draw(s, p, ev);
   if (s.winner !== null) return;
   if (s.turn > STORM_TURN) {
@@ -331,8 +377,63 @@ function startTurn(s: GameState, p: PlayerId, ev: Ev[]) {
     const m = mods(s, st);
     st.moved = false;
     st.attacked = false;
-    st.ap = st.frozen > 0 ? 0 : m.actions;
+    st.skilled = false;
+    st.guard = 0;
+    st.ap = st.frozen > 0 ? 0 : m.actions + (st.bonusAp || 0);
+    st.bonusAp = 0;
     if (m.regen > 0) heal(s, st, m.regen, ev, true);
+  }
+}
+
+// ---------------------------------------------------------------- board events
+const EVENT_KINDS: EventKind[] = ['draft', 'paw', 'glitter', 'windup', 'cleanup'];
+function scheduleEvent(s: GameState, turn: number, ev: Ev[]) {
+  const kind = EVENT_KINDS[Math.floor(rnd(s) * EVENT_KINDS.length)];
+  const e: BoardEvent = { kind, turn };
+  if (kind === 'paw') e.row = 1 + Math.floor(rnd(s) * 3);
+  if (kind === 'draft') e.dir = Math.floor(rnd(s) * 4) as Dir;
+  s.event = e;
+  ev.push({ e: 'eventSoon', ev: { ...e } });
+}
+function resolveEvent(s: GameState, e: BoardEvent, ev: Ev[]) {
+  ev.push({ e: 'boardEvent', ev: { ...e } });
+  switch (e.kind) {
+    case 'draft': {
+      const [dx, dy] = DIRV[e.dir!];
+      // move the stacks furthest along the wind first so they don't block each other
+      const order = [...s.stacks].sort((a, b) => (b.x * dx + b.y * dy) - (a.x * dx + a.y * dy));
+      for (const st of order) {
+        if (!s.stacks.includes(st)) continue;
+        const m = mods(s, st);
+        if (m.heavy || m.anchor) continue;
+        const x = st.x + dx, y = st.y + dy;
+        if (!inB(x, y) || stackAt(s, x, y)) continue;
+        ev.push({ e: 'push', stack: st.id, x, y, fx: st.x, fy: st.y, blocked: false });
+        enterTile(s, st, x, y, ev);
+      }
+      break;
+    }
+    case 'paw':
+      for (const st of s.stacks.filter(t => t.y === e.row)) damage(s, st, 3, ev);
+      checkWin(s, ev);
+      break;
+    case 'glitter':
+      for (let i = 0; i < 3; i++) {
+        const k = Math.floor(rnd(s) * W * H);
+        const elem = ELEMS[Math.floor(rnd(s) * ELEMS.length)];
+        s.tiles[k].terrain = elem;
+        ev.push({ e: 'terrain', x: k % W, y: Math.floor(k / W), elem, card: '' });
+      }
+      break;
+    case 'windup':
+      for (const st of s.stacks) { st.bonusAp = (st.bonusAp || 0) + 1; ev.push({ e: 'refresh', stack: st.id, n: 1 }); }
+      break;
+    case 'cleanup':
+      s.tiles.forEach((t, k) => {
+        if (t.terrain) { t.terrain = null; }
+        if (t.trap) { s.players[t.trap.owner].discard.push(t.trap.card); ev.push({ e: 'trap', p: t.trap.owner, card: t.trap.card, x: k % W, y: Math.floor(k / W), stack: -1 }); t.trap = null; }
+      });
+      break;
   }
 }
 
@@ -515,7 +616,7 @@ export function apply(prev: GameState, a: Action, trusted = false): { state: Gam
     case 'summon': {
       const ref = takeFromHand(P, a.card);
       P.energy -= card(ref.card).cost;
-      const st: Stack = { id: s.nextId++, owner: p, x: a.x, y: a.y, dir: a.dir, units: [{ uid: ref.uid, card: ref.card, hp: card(ref.card).hp!, gear: null }], ap: 0, moved: false, frozen: 0, attacked: false };
+      const st: Stack = { id: s.nextId++, owner: p, x: a.x, y: a.y, dir: a.dir, units: [{ uid: ref.uid, card: ref.card, hp: card(ref.card).hp!, gear: null }], ap: 0, moved: false, frozen: 0, attacked: false, guard: 0, skilled: false, bonusAp: 0 };
       s.stacks.push(st);
       ev.push({ e: 'summon', p, stack: st.id, x: a.x, y: a.y, dir: a.dir, card: ref.card, uid: ref.uid });
       enterTile(s, st, a.x, a.y, ev);
@@ -604,6 +705,55 @@ export function apply(prev: GameState, a: Action, trusted = false): { state: Gam
       st.ap--;
       st.dir = a.dir;
       ev.push({ e: 'turnTo', stack: st.id, dir: a.dir });
+      break;
+    }
+    case 'skill': {
+      const st = stackById(s, a.stack)!;
+      const id = card(lead(st).card).skill!;
+      const sk = SKILLS[id];
+      st.skilled = true;
+      st.ap -= sk.ap;
+      P.energy -= sk.energy;
+      ev.push({ e: 'skill', stack: st.id, skill: id, x: a.x, y: a.y });
+      const adj = ADJ4(s, st);
+      switch (id) {
+        case 'dash':
+          for (let i = 0; i < 2; i++) {
+            const [dx, dy] = DIRV[st.dir];
+            const x = st.x + dx, y = st.y + dy;
+            if (!inB(x, y) || stackAt(s, x, y) || !s.stacks.includes(st) || st.frozen) break;
+            st.moved = true;
+            ev.push({ e: 'move', stack: st.id, x, y, fx: st.x, fy: st.y });
+            enterTile(s, st, x, y, ev);
+          }
+          break;
+        case 'taunt':
+          for (const t of adj) {
+            if (t.owner === st.owner) continue;
+            const m = mods(s, t);
+            if (m.heavy || m.anchor) continue;
+            t.dir = faceToward(t, st);
+            ev.push({ e: 'turnTo', stack: t.id, dir: t.dir });
+          }
+          break;
+        case 'swap': {
+          const t = stackAt(s, a.x!, a.y!)!;
+          const [ox, oy] = [st.x, st.y];
+          ev.push({ e: 'move', stack: st.id, x: t.x, y: t.y, fx: ox, fy: oy });
+          ev.push({ e: 'move', stack: t.id, x: ox, y: oy, fx: t.x, fy: t.y });
+          st.x = t.x; st.y = t.y; t.x = ox; t.y = oy;
+          break;
+        }
+        case 'guard':
+          for (const t of [st, ...adj.filter(t => t.owner === st.owner)]) { t.guard = (t.guard || 0) + 1; ev.push({ e: 'guard', stack: t.id, n: 1 }); }
+          break;
+        case 'brace': st.guard = (st.guard || 0) + 2; ev.push({ e: 'guard', stack: st.id, n: 2 }); break;
+        case 'mend': for (const t of [st, ...adj.filter(t => t.owner === st.owner)]) heal(s, t, 2, ev); break;
+        case 'zap': { const t = stackAt(s, a.x!, a.y!); if (t) damage(s, t, 2, ev, { src: st.id }); checkWin(s, ev); break; }
+        case 'bump': { const [dx, dy] = DIRV[st.dir]; const t = stackAt(s, st.x + dx, st.y + dy); if (t) push(s, t, st.dir, ev); break; }
+        case 'rally': for (const t of adj) if (t.owner === st.owner) { t.ap += 1; ev.push({ e: 'refresh', stack: t.id, n: 1 }); } break;
+        case 'whirl': st.dir = a.dir!; ev.push({ e: 'turnTo', stack: st.id, dir: a.dir! }); break;
+      }
       break;
     }
     case 'attack': {

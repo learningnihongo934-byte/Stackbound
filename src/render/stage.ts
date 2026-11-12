@@ -8,7 +8,9 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { runTicks, tween, ease, lerp, animCfg } from './anim';
-import { clothTexture, letterTexture, plankTexture, softDot, woodTexture } from './tex';
+import { softDot, woodTexture } from './tex';
+import { buildArena, floorTexture, type Arena, type MoteMode } from './arenas';
+import type { ArenaId } from '../game/arena-info';
 
 export const TILE = 1;
 export const TILE_TOP = 0.075;
@@ -102,6 +104,7 @@ export class Stage {
     this.scene.fog = new THREE.FogExp2(0x1a100a, 0.035);
     this.buildAttic();
     this.buildBoard();
+    this.setArena('attic');
     this.scene.add(this.root);
     this.setupPost();
     window.addEventListener('resize', () => this.resize());
@@ -121,175 +124,93 @@ export class Stage {
   }
 
   // ---------------------------------------------------------------- environment
+  private hemi!: THREE.HemisphereLight;
+  private fillLight!: THREE.DirectionalLight;
+  private lampLight!: THREE.PointLight;
+  private floor!: THREE.Mesh;
+  private frameMat!: THREE.MeshStandardMaterial;
+  private arena: Arena | null = null;
+  private arenaCache = new Map<ArenaId, Arena>();
+  arenaId: ArenaId = 'attic';
+  private moteMode: MoteMode = 'dust';
+
   private buildAttic() {
     const s = this.scene;
-    const hemi = new THREE.HemisphereLight(0xffe4c0, 0x2a1810, 0.75);
-    s.add(hemi);
+    this.hemi = new THREE.HemisphereLight(0xffe4c0, 0x2a1810, 0.75);
+    s.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xffd6a0, 2.7);
     sun.position.set(-7, 11, -6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera as THREE.OrthographicCamera;
-    sc.left = -7; sc.right = 7; sc.top = 7; sc.bottom = -7; sc.near = 2; sc.far = 32;
+    sc.left = -8; sc.right = 8; sc.top = 8; sc.bottom = -8; sc.near = 2; sc.far = 34;
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.025;
     s.add(sun, sun.target);
     this.sun = sun;
-    const fill = new THREE.DirectionalLight(0xa8b8ff, 0.42);
-    fill.position.set(5, 7, 10);
-    s.add(fill);
-    const lamp = new THREE.PointLight(0xffa456, 16, 13, 2);
-    lamp.position.set(5.5, 2.9, -1.6);
-    s.add(lamp);
-
-    // floor + rag rug
-    const floorTex = plankTexture(11, [104, 66, 40], 7);
-    floorTex.repeat.set(5, 5);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.86 }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -0.42;
-    floor.receiveShadow = true;
-    s.add(floor);
-    const rug = new THREE.Mesh(new THREE.CircleGeometry(5.9, 96), new THREE.MeshStandardMaterial({ map: rugTexture(), roughness: 0.95, color: 0xb8a890 }));
-    rug.rotation.x = -Math.PI / 2;
-    rug.position.y = -0.405;
-    rug.receiveShadow = true;
-    s.add(rug);
-
-    // back wall with a window
-    const wallTex = plankTexture(5, [70, 44, 28], 9, true);
-    wallTex.repeat.set(4, 1);
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(60, 16), new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9 }));
-    wall.position.set(0, 7.5, -11);
-    wall.receiveShadow = true;
-    s.add(wall);
-    const winFrame = new THREE.MeshStandardMaterial({ color: 0x4a3020, roughness: 0.8 });
-    const win = new THREE.Group();
-    const pane = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.6), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.9, 1.4), toneMapped: false }));
-    win.add(pane);
-    for (const [w, h, x, y] of [[3.6, 0.22, 0, 1.4], [3.6, 0.22, 0, -1.4], [0.22, 3, 1.7, 0], [0.22, 3, -1.7, 0], [0.12, 2.6, 0, 0], [3.2, 0.12, 0, 0]] as const) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), winFrame);
-      b.position.set(x, y, 0.1);
-      win.add(b);
-    }
-    win.position.set(-4.2, 4.6, -10.95);
-    s.add(win);
-    // god-ray shaft from the window toward the board
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 2.6, 15, 24, 1, true), new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      uniforms: { time: { value: 0 } },
-      vertexShader: 'varying vec2 vUv; varying vec3 vN; void main(){ vUv = uv; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: 'varying vec2 vUv; varying vec3 vN; void main(){ float edge = pow(abs(vN.z), 1.6); float a = smoothstep(0.0, 0.35, vUv.y) * smoothstep(1.0, 0.7, vUv.y) * edge * 0.075; gl_FragColor = vec4(vec3(1.0, 0.86, 0.62) * a, a); }',
-    }));
-    beam.position.set(-2.4, 3.2, -4.6);
-    beam.lookAt(new THREE.Vector3(0.6, -0.4, 0.6));
-    beam.rotateX(Math.PI / 2);
-    s.add(beam);
-    // dust motes in the beam
+    this.fillLight = new THREE.DirectionalLight(0xa8b8ff, 0.42);
+    this.fillLight.position.set(5, 7, 10);
+    s.add(this.fillLight);
+    this.lampLight = new THREE.PointLight(0xffa456, 16, 13, 2);
+    this.lampLight.position.set(5.5, 2.9, -1.6);
+    s.add(this.lampLight);
+    this.floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ map: floorTexture('planks'), roughness: 0.86 }));
+    this.floor.rotation.x = -Math.PI / 2;
+    this.floor.position.y = -0.42;
+    this.floor.receiveShadow = true;
+    s.add(this.floor);
     const n = 500;
     const pos = new Float32Array(n * 3);
     this.dustVel = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      pos[i * 3] = -6 + Math.random() * 10; pos[i * 3 + 1] = Math.random() * 7; pos[i * 3 + 2] = -9 + Math.random() * 11;
-      this.dustVel[i * 3] = (Math.random() - 0.5) * 0.05; this.dustVel[i * 3 + 1] = (Math.random() - 0.4) * 0.03; this.dustVel[i * 3 + 2] = (Math.random() - 0.5) * 0.05;
-    }
+    for (let i = 0; i < n; i++) { pos[i * 3] = -6 + Math.random() * 10; pos[i * 3 + 1] = Math.random() * 7; pos[i * 3 + 2] = -9 + Math.random() * 11; }
     const dg = new THREE.BufferGeometry();
     dg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.dust = new THREE.Points(dg, new THREE.PointsMaterial({ size: 0.05, map: softDot(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffe2b0, opacity: 0.8 }));
     s.add(this.dust);
+  }
 
-    // props: books (back left), letter blocks (back right), trunk (far back), brass lamp (right)
-    const books = new THREE.Group();
-    const bookCols: [number, number, number][] = [[120, 40, 36], [44, 78, 96], [86, 104, 58], [150, 110, 52], [70, 44, 80]];
-    let by = -0.42;
-    bookCols.forEach((c, i) => {
-      const h = 0.34 + (i % 2) * 0.1;
-      const geo = new RoundedBoxGeometry(2.3 - i * 0.12, h, 1.6 - (i % 3) * 0.1, 2, 0.04);
-      const mats = [clothTexture(i + 3, c, 'rgba(214,170,80,0.9)')].map(t => new THREE.MeshStandardMaterial({ map: t, roughness: 0.8 }));
-      const pages = new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.9 });
-      const b = new THREE.Mesh(geo, [mats[0], mats[0], mats[0], mats[0], pages, mats[0]]);
-      b.position.y = by + h / 2;
-      by += h;
-      b.rotation.y = (i - 2) * 0.12;
-      b.castShadow = b.receiveShadow = true;
-      books.add(b);
+  /** Swap the playset around the board: props, lighting, fog, floor, board colours, motes. */
+  setArena(id: ArenaId) {
+    if (this.arena?.id === id) return;
+    if (this.arena) this.scene.remove(this.arena.group);
+    let a = this.arenaCache.get(id);
+    if (!a) { a = buildArena(id); this.arenaCache.set(id, a); }
+    this.arena = a;
+    this.arenaId = id;
+    a.group.userData.lampLight = this.lampLight;
+    this.scene.add(a.group);
+    const L = a.look;
+    this.hemi.color.setHex(L.hemi[0]); this.hemi.groundColor.setHex(L.hemi[1]); this.hemi.intensity = L.hemi[2];
+    this.sun.color.setHex(L.sun[0]); this.sun.intensity = L.sun[1]; this.sun.position.set(...L.sun[2]);
+    this.lampLight.color.setHex(L.lamp[0]); this.lampLight.intensity = L.lamp[1]; this.lampLight.position.set(...L.lamp[2]);
+    this.fillLight.color.setHex(L.fill[0]); this.fillLight.intensity = L.fill[1];
+    (this.scene.fog as THREE.FogExp2).color.setHex(L.fog[0]); (this.scene.fog as THREE.FogExp2).density = L.fog[1];
+    (this.scene.background as THREE.Color).setHex(L.bg);
+    this.renderer.toneMappingExposure = L.exposure;
+    const fm = this.floor.material as THREE.MeshStandardMaterial;
+    fm.map = floorTexture(L.floor); fm.roughness = L.floor === 'velvet' || L.floor === 'felt' ? 1 : 0.85; fm.needsUpdate = true;
+    this.frameMat.color.setHex(L.frame);
+    this.tiles.forEach(t => {
+      const { x, y } = t.userData as { x: number; y: number };
+      const tint = new THREE.Color((x + y) % 2 === 0 ? L.tiles[0] : L.tiles[1]);
+      const side = new THREE.Color(y <= 1 ? 0xf0f4ff : y >= 3 ? 0xfff0ea : 0xffffff);
+      (t.material as THREE.MeshStandardMaterial).color.copy(tint.multiply(side));
     });
-    books.position.set(-5.9, 0, -3.4);
-    s.add(books);
-    const blocks = new THREE.Group();
-    const letters = ['S', 'T', 'A', 'C', 'K'];
-    const bcols = ['#c0442e', '#2f6a9a', '#e0a83a', '#5f8a3a', '#7a4a9a'];
-    const place: [number, number, number, number][] = [[0, 0, 0, 0.1], [0.78, 0, 0.1, -0.15], [0.4, 0.74, 0.05, 0.3], [-0.9, 0, 0.9, 0.7], [0.3, 1.48, 0, -0.2]];
-    letters.forEach((ch, i) => {
-      const t = letterTexture(ch, bcols[i], '#f6ead2');
-      const m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 });
-      const b = new THREE.Mesh(new RoundedBoxGeometry(0.72, 0.72, 0.72, 2, 0.06), m);
-      const [x, y, z, r] = place[i];
-      b.position.set(x, -0.42 + 0.36 + y, z);
-      b.rotation.y = r;
-      b.castShadow = b.receiveShadow = true;
-      blocks.add(b);
-    });
-    blocks.position.set(5.6, 0, -3.8);
-    s.add(blocks);
-    const trunkWood = new THREE.MeshStandardMaterial({ map: woodTexture(77, [92, 54, 32], 512), roughness: 0.7 });
-    const brass = new THREE.MeshStandardMaterial({ color: 0xc8983e, metalness: 0.85, roughness: 0.35 });
-    const trunk = new THREE.Group();
-    const tb = new THREE.Mesh(new RoundedBoxGeometry(4.4, 1.8, 2.2, 3, 0.1), trunkWood);
-    tb.position.y = 0.9 - 0.42;
-    const lid = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 4.4, 24, 1, false, 0, Math.PI), trunkWood);
-    lid.rotation.z = Math.PI / 2;
-    lid.position.y = 1.8 - 0.42;
-    trunk.add(tb, lid);
-    for (const x of [-1.6, 1.6]) {
-      const band = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.84, 2.26), brass);
-      band.position.set(x, 0.9 - 0.42, 0);
-      trunk.add(band);
+    this.moteMode = L.motes[0];
+    (this.dust.material as THREE.PointsMaterial).color.setHex(L.motes[1]);
+    (this.dust.material as THREE.PointsMaterial).size = this.moteMode === 'rain' ? 0.035 : this.moteMode === 'notes' ? 0.09 : this.moteMode === 'embers' ? 0.06 : 0.05;
+    const v = this.dustVel;
+    for (let i = 0; i < v.length; i += 3) {
+      const m = this.moteMode;
+      v[i] = (Math.random() - 0.5) * (m === 'rain' ? 0.2 : 0.05);
+      v[i + 1] = m === 'rain' ? -5 - Math.random() * 2 : m === 'notes' || m === 'embers' ? 0.15 + Math.random() * 0.25 : (Math.random() - 0.4) * 0.03;
+      v[i + 2] = (Math.random() - 0.5) * 0.05;
     }
-    const latch = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.1), brass);
-    latch.position.set(0, 1.4 - 0.42, 1.12);
-    trunk.add(latch);
-    trunk.traverse(o => { (o as THREE.Mesh).castShadow = (o as THREE.Mesh).receiveShadow = true; });
-    trunk.position.set(0.6, 0, -7.2);
-    trunk.rotation.y = -0.08;
-    s.add(trunk);
-    const lampG = new THREE.Group();
-    const lb = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.16, 32), brass);
-    lb.position.y = -0.34;
-    const arm1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 12), brass);
-    arm1.position.set(0, 0.8, 0); arm1.rotation.z = 0.25;
-    const arm2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 12), brass);
-    arm2.position.set(-0.55, 2.2, 0); arm2.rotation.z = 1.2;
-    const shade = new THREE.Mesh(new THREE.ConeGeometry(0.62, 0.8, 32, 1, true), new THREE.MeshStandardMaterial({ color: 0x2f5a46, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide }));
-    shade.position.set(-1.2, 2.55, 0); shade.rotation.z = 0.7;
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.4, 1.6), toneMapped: false }));
-    bulb.position.set(-1.05, 2.3, 0);
-    lampG.add(lb, arm1, arm2, shade, bulb);
-    lampG.traverse(o => { if (o !== bulb) (o as THREE.Mesh).castShadow = true; });
-    lampG.position.set(6.6, 0, -1.4);
-    s.add(lampG);
-    // scattered marbles and a spool by the board
-    const marbleCols = [0x3a7ad0, 0xd05a4a, 0x6ac06a, 0xe8c040];
-    marbleCols.forEach((c, i) => {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 14), new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.05, clearcoat: 1, transmission: 0.2 }));
-      m.position.set(-4.1 + i * 0.45, -0.42 + 0.16, 3.6 - (i % 2) * 0.5);
-      m.castShadow = true;
-      s.add(m);
-    });
-    const spool = new THREE.Group();
-    const sw = new THREE.MeshStandardMaterial({ map: woodTexture(5, [180, 140, 90]), roughness: 0.7 });
-    const thread = new THREE.MeshStandardMaterial({ color: 0xb0364a, roughness: 0.9 });
-    const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.5, 24), thread);
-    const e1 = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.08, 24), sw); e1.position.y = 0.29;
-    const e2 = e1.clone(); e2.position.y = -0.29;
-    spool.add(sp, e1, e2);
-    spool.traverse(o => { (o as THREE.Mesh).castShadow = true; });
-    spool.position.set(4.6, -0.42 + 0.33, 3.3);
-    s.add(spool);
   }
 
   private buildBoard() {
     const walnut = new THREE.MeshStandardMaterial({ map: woodTexture(31, [82, 48, 28], 512), roughness: 0.55 });
+    this.frameMat = walnut;
     const frame = new THREE.Mesh(new RoundedBoxGeometry(6.1, 0.42, 6.1, 4, 0.1), walnut);
     frame.position.y = -0.21;
     frame.castShadow = frame.receiveShadow = true;
@@ -366,7 +287,7 @@ export class Stage {
     const hf = 2 * Math.atan(Math.tan(vf / 2) * aspect);
     const portrait = aspect < 0.9;
     const needW = portrait ? 3.3 : 3.7, needH = portrait ? 3.15 : 3.4;
-    const d = Math.max(needW / Math.tan(hf / 2), needH / Math.tan(vf / 2)) + 1.2;
+    const d = Math.max(needW / Math.tan(hf / 2), needH / Math.tan(vf / 2)) + 1.8;
     this.boardDist = Math.min(30, d);
     if (this.mode === 'board' && !this.cinematic) this.rigTarget.dist = this.boardDist;
     this.camera.updateProjectionMatrix();
@@ -377,7 +298,7 @@ export class Stage {
 
   setMode(mode: 'menu' | 'board') {
     this.mode = mode;
-    if (mode === 'board') Object.assign(this.rigTarget, { el: 0.95, dist: this.boardDist, tx: 0, ty: 0, tz: 0.2, az: this.azStep * Math.PI / 2 });
+    if (mode === 'board') Object.assign(this.rigTarget, { el: 0.86, dist: this.boardDist, tx: 0, ty: 0, tz: 0.2, az: this.azStep * Math.PI / 2 });
   }
 
   rotateView(step: number) {
@@ -390,16 +311,22 @@ export class Stage {
   }
 
   /** Swoop the camera to a world point, hold, then return. */
-  async cinematicTo(p: THREE.Vector3, opts: { dist?: number; el?: number; hold?: number; dur?: number } = {}) {
+  async cinematicTo(p: THREE.Vector3, opts: { dist?: number; el?: number; hold?: number; dur?: number; orbit?: number } = {}) {
     if (animCfg.reduceMotion) return;
     this.cinematic = true;
     const from = { ...this.rigTarget };
     Object.assign(this.rigTarget, { tx: p.x, ty: p.y + 0.5, tz: p.z, dist: opts.dist ?? 5, el: opts.el ?? 0.5 });
     await tween(opts.dur ?? 600, () => {}, ease.linear);
-    await tween(opts.hold ?? 500, () => {}, ease.linear);
+    const az0 = this.rigTarget.az;
+    await tween(opts.hold ?? 500, k => { if (opts.orbit) this.rigTarget.az = az0 + opts.orbit * k; }, ease.inOutCubic);
     Object.assign(this.rigTarget, { ...from, dist: this.mode === 'board' ? this.boardDist : from.dist });
     this.cinematic = false;
   }
+
+  private punchAmt = 0;
+  private punchAt = new THREE.Vector3();
+  /** Quick dolly toward a point (decays on its own). */
+  punch(p: THREE.Vector3, amt = 0.6) { if (animCfg.reduceMotion) return; this.punchAt.copy(p); this.punchAmt = Math.max(this.punchAmt, amt); }
 
   shake(amount = 0.15) { if (!animCfg.reduceMotion) this.shakeAmt = Math.max(this.shakeAmt, amount); }
 
@@ -425,6 +352,10 @@ export class Stage {
     const cy = R.ty + Math.sin(R.el) * R.dist;
     const cz = R.tz + Math.cos(R.az) * Math.cos(R.el) * R.dist;
     this.camera.position.set(cx, cy, cz);
+    if (this.punchAmt > 0.001) {
+      this.camera.position.lerp(this.punchAt, Math.min(0.25, this.punchAmt * 0.12));
+      this.punchAmt *= Math.exp(-dt * 7);
+    }
     if (this.shakeAmt > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeAmt;
       this.camera.position.y += (Math.random() - 0.5) * this.shakeAmt;
@@ -445,11 +376,13 @@ export class Stage {
       a[i] += (v[i] + Math.sin(t * 0.3 + i) * 0.02) * dt;
       a[i + 1] += v[i + 1] * dt;
       a[i + 2] += v[i + 2] * dt;
+      if (this.moteMode === 'rain' && a[i + 2] > -6) a[i + 2] = -9 + Math.random() * 3;
       if (a[i + 1] > 7 || a[i + 1] < -0.3) a[i + 1] = a[i + 1] > 7 ? 0 : 6.9;
       if (a[i] > 4) a[i] = -6; else if (a[i] < -6) a[i] = 4;
       if (a[i + 2] > 2) a[i + 2] = -9; else if (a[i + 2] < -9) a[i + 2] = 2;
     }
     pos.needsUpdate = true;
+    this.arena?.update?.(dt, t);
   }
 
   /** Grid tile under a screen point, or null. */
@@ -476,28 +409,4 @@ export class Stage {
     const w = this.host.clientWidth || window.innerWidth, h = this.host.clientHeight || window.innerHeight;
     return { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h, behind: v.z > 1 };
   }
-}
-
-function rugTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 1024;
-  const ctx = c.getContext('2d')!;
-  const cols = ['#5a2a22', '#8a6a3a', '#2e4446', '#a8987a', '#4a3240', '#6a3e26', '#34462e', '#8a7a5a'];
-  for (let r = 512, i = 0; r > 0; r -= 18, i++) {
-    ctx.fillStyle = cols[(i * 3 + (i >> 2)) % cols.length];
-    ctx.beginPath(); ctx.arc(512, 512, r, 0, Math.PI * 2); ctx.fill();
-    // braid texture
-    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
-    ctx.lineWidth = 2;
-    for (let a = 0; a < Math.PI * 2; a += 12 / r) {
-      ctx.beginPath();
-      ctx.moveTo(512 + Math.cos(a) * (r - 2), 512 + Math.sin(a) * (r - 2));
-      ctx.lineTo(512 + Math.cos(a + 6 / r) * (r - 16), 512 + Math.sin(a + 6 / r) * (r - 16));
-      ctx.stroke();
-    }
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
 }

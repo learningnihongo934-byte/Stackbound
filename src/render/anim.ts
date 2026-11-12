@@ -2,13 +2,14 @@
 type Tick = (dt: number, t: number) => boolean | void;
 const ticks = new Set<Tick>();
 let now = 0;
-export const animCfg = { speed: 1, reduceMotion: false };
+export const animCfg = { speed: 1, reduceMotion: false, timeScale: 1 };
 
 export function onTick(fn: Tick): () => void {
   ticks.add(fn);
   return () => ticks.delete(fn);
 }
 export function runTicks(dt: number) {
+  dt *= animCfg.timeScale;
   now += dt;
   for (const fn of [...ticks]) if (fn(dt, now)) ticks.delete(fn);
 }
@@ -47,4 +48,20 @@ export const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 export function angleLerp(a: number, b: number, k: number) {
   let d = ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
   return a + d * k;
+}
+
+let restore = 0;
+/** Freeze-frame on impact. */
+export function hitStop(ms = 70) {
+  if (animCfg.reduceMotion) return;
+  animCfg.timeScale = 0.02;
+  clearTimeout(restore);
+  restore = window.setTimeout(() => { animCfg.timeScale = 1; }, ms);
+}
+/** Slow motion for dramatic beats (knockouts, finishing blows). */
+export function slowmo(scale = 0.3, ms = 500) {
+  if (animCfg.reduceMotion) return;
+  animCfg.timeScale = scale;
+  clearTimeout(restore);
+  restore = window.setTimeout(() => { animCfg.timeScale = 1; }, ms);
 }

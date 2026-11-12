@@ -2,7 +2,7 @@
 // and a threat model of what the opponent can hit next turn. Runs on a view with enemy traps hidden.
 import { card } from './cards';
 import {
-  actionKey, apply, attackDamage, attackOptions, canSummonRow, DIRV, homeRow, inB, legalActions, lead, mods, other, stackAt, stackById,
+  actionKey, apply, attackDamage, pointsHeld, attackOptions, canSummonRow, DIRV, homeRow, inB, legalActions, lead, mods, other, stackAt, stackById,
 } from './rules';
 import type { Action, Dir, GameState, PlayerId, Stack } from './types';
 
@@ -70,6 +70,8 @@ export function evaluate(s: GameState, me: PlayerId, deep: boolean): number {
   }
   sc += (P.hand.length - O.hand.length) * 0.65;
   sc += P.evo.length * 0.1;
+  sc += (pointsHeld(s, me) - pointsHeld(s, opp)) * 2.2;
+  if (s.event?.kind === 'paw' && s.event.turn - s.turn <= 1) for (const st of s.stacks) if (st.y === s.event.row) sc += (st.owner === me ? -1 : 1) * unitValue(s, st) * 0.3;
   for (const t of s.tiles) if (t.trap && t.trap.owner === me) sc += card(t.trap.card).trigger === 'attacked' ? 1.8 : 1.3;
   if (deep) {
     const th = threatTo(s, me);
@@ -132,7 +134,7 @@ export function chooseAction(s: GameState, opts: AiOpts): Action {
     let next: GameState;
     try { next = apply(s, a, true).state; } catch { continue; }
     let sc = evaluate(next, me, deep);
-    if (opts.level >= 1 && (a.k === 'move' || a.k === 'turn' || a.k === 'gear' || a.k === 'stack' || (a.k === 'spell' && card(s.players[me].hand.find(h => h.uid === a.card)!.card).fx?.t === 'refresh'))) {
+    if (opts.level >= 1 && (a.k === 'move' || a.k === 'turn' || a.k === 'gear' || a.k === 'stack' || a.k === 'skill' || (a.k === 'spell' && card(s.players[me].hand.find(h => h.uid === a.card)!.card).fx?.t === 'refresh'))) {
       sc += 0.85 * bestAttackGain(next, me, deep, sc);
     }
     sc += (rand() - 0.5) * noise;

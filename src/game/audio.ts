@@ -103,46 +103,87 @@ export const sfx = {
   error: () => { tone(220, 0.14, { type: 'square', vol: 0.05 }); tone(180, 0.18, { type: 'square', vol: 0.05, at: 0.08 }); },
 };
 
-// ---------------------------------------------------------------- generative music box
-let musicMode: 'off' | 'menu' | 'battle' = 'off';
+// ---------------------------------------------------------------- voice / sample clips
+const clipCache = new Map<string, Promise<AudioBuffer | null>>();
+export function playClip(url: string, vol = 1): boolean {
+  const c = ensure(); if (!c) return false;
+  let p = clipCache.get(url);
+  if (!p) {
+    p = fetch(url).then(r => r.arrayBuffer()).then(b => c.decodeAudioData(b)).catch(() => null);
+    clipCache.set(url, p);
+  }
+  p.then(buf => {
+    if (!buf) return;
+    const src = c.createBufferSource(); src.buffer = buf;
+    const g = c.createGain(); g.gain.value = vol;
+    src.connect(g); g.connect(master);
+    src.start();
+  });
+  return true;
+}
+export function preloadClip(url: string) { const c = ensure(); if (c && !clipCache.has(url)) clipCache.set(url, fetch(url).then(r => r.arrayBuffer()).then(b => c.decodeAudioData(b)).catch(() => null)); }
+
+// ---------------------------------------------------------------- layered music
+// Menus: a gentle music box. Battles: the same box plus drums, bass and a lead that come in as the
+// fight gets closer (intensity 0..1). Bosses: minor key, faster, always at least half intensity.
+let musicMode: 'off' | 'menu' | 'battle' | 'boss' = 'off';
 let timer: number | null = null;
 let step = 0, nextT = 0, melodyDeg = 7;
+let intensity = 0;
 const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
-const PROG = [[0, 4, 7], [-3, 0, 4], [-7, -3, 0], [-5, -1, 2]]; // I vi IV V (relative to C)
+const SCALE_MIN = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24].map(n => n - 3);
+const PROG = [[0, 4, 7], [-3, 0, 4], [-7, -3, 0], [-5, -1, 2]]; // I vi IV V
+const PROG_BOSS = [[-3, 0, 4], [-7, -3, 0], [0, 4, 7], [-5, -1, 2]]; // vi IV I V (minor feel)
 
-export function setMusic(mode: 'off' | 'menu' | 'battle') {
+export function setIntensity(x: number) { intensity = Math.max(0, Math.min(1, x)); }
+export function setMusic(mode: 'off' | 'menu' | 'battle' | 'boss') {
   if (mode === musicMode) return;
   musicMode = mode;
   if (timer) { clearInterval(timer); timer = null; }
   if (mode === 'off') return;
   const c = ensure(); if (!c) return;
-  nextT = c.currentTime + 0.1; step = 0;
+  nextT = c.currentTime + 0.1; step = 0; intensity = 0;
   timer = window.setInterval(schedule, 90);
 }
 
+const kick = (at: number, v = 0.22) => tone(62, 0.22, { type: 'sine', vol: v, at, slide: 0.55, bus: musicBus });
+const snare = (at: number, v = 0.09) => { noise(0.14, { freq: 1900, q: 0.7, vol: v, at, bus: musicBus }); tone(190, 0.08, { type: 'triangle', vol: v * 0.8, at, bus: musicBus }); };
+const hat = (at: number, v = 0.035) => noise(0.04, { freq: 8000, q: 0.5, vol: v, at, type: 'highpass', bus: musicBus });
+
 function schedule() {
   const c = ensure(); if (!c || musicMode === 'off') return;
-  const battle = musicMode === 'battle';
-  const bpm = battle ? 100 : 74;
+  const battle = musicMode !== 'menu';
+  const boss = musicMode === 'boss';
+  const I = boss ? Math.max(0.5, intensity) : battle ? intensity : 0;
+  const bpm = boss ? 112 : battle ? 96 + Math.round(I * 14) : 74;
   const spb = 60 / bpm / 2; // eighth notes
+  const prog = boss ? PROG_BOSS : PROG;
+  const scale = boss ? SCALE_MIN : SCALE;
   while (nextT < c.currentTime + 0.3) {
     const at = nextT - c.currentTime;
     const bar = Math.floor(step / 8) % 4;
-    const chord = PROG[bar];
+    const chord = prog[bar];
     const beat = step % 8;
-    if (beat === 0) { tone(N(chord[0] - 12), spb * 7, { type: 'triangle', vol: 0.07, at, bus: musicBus, attack: 0.04 }); }
-    if (beat === 4 && battle) tone(N(chord[0] - 12), spb * 3, { type: 'triangle', vol: 0.05, at, bus: musicBus });
-    // arpeggio
-    if (beat % 2 === 0 || battle) {
-      const n = chord[(beat >> (battle ? 0 : 1)) % 3] + 12;
-      tine(N(n), at, battle ? 0.035 : 0.045, musicBus, 1.1);
+    // bass
+    if (beat === 0) tone(N(chord[0] - 12), spb * (battle && I > 0.5 ? 1.8 : 7), { type: 'triangle', vol: 0.075, at, bus: musicBus, attack: 0.03 });
+    if (battle && I > 0.5 && beat % 2 === 0 && beat) tone(N(chord[(beat / 2) % 3] - 12), spb * 1.6, { type: 'triangle', vol: 0.06, at, bus: musicBus });
+    // music box arpeggio
+    if (beat % 2 === 0 || (battle && I > 0.3)) tine(N(chord[(beat >> (battle && I > 0.3 ? 0 : 1)) % 3] + 12), at, battle ? 0.032 : 0.045, musicBus, 1.1);
+    // melody
+    if ((beat === 0 || beat === 3 || beat === 6 || (I > 0.75 && beat === 5)) && Math.random() < 0.75) {
+      melodyDeg = Math.max(0, Math.min(scale.length - 1, melodyDeg + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)]));
+      const n = N(scale[melodyDeg] + 12);
+      tine(n, at, 0.065, musicBus, 1.8);
+      if (battle && I > 0.75) tone(n * 2, spb * 1.5, { type: 'triangle', vol: 0.03, at, bus: musicBus, attack: 0.01 });
     }
-    // melody: gentle random walk on the pentatonic scale
-    if ((beat === 0 || beat === 3 || beat === 6) && Math.random() < 0.75) {
-      melodyDeg = Math.max(0, Math.min(SCALE.length - 1, melodyDeg + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)]));
-      tine(N(SCALE[melodyDeg] + 12), at, 0.07, musicBus, 1.8);
+    // drums
+    if (battle) {
+      if (I > 0.15 && (beat === 0 || beat === 4 || (I > 0.6 && beat === 7))) kick(at);
+      if (I > 0.15 && beat % 2 === 1) hat(at);
+      if (I > 0.45 && (beat === 2 || beat === 6)) snare(at);
+      if (I <= 0.15 && (beat === 2 || beat === 6)) noise(0.05, { freq: 1800, q: 6, vol: 0.05, at, bus: musicBus });
     }
-    if (battle && (beat === 2 || beat === 6)) noise(0.05, { freq: 1800, q: 6, vol: 0.05, at, bus: musicBus });
+    if (boss && beat === 0 && bar % 2 === 0) tone(N(chord[0] - 24), spb * 6, { type: 'sawtooth', vol: 0.025, at, bus: musicBus, attack: 0.2 });
     nextT += spb;
     step++;
   }
