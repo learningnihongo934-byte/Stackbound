@@ -94,7 +94,7 @@ function runBattle(cfg: BattleCfg) {
     endBtn);
   hud.append(foePlaque, mePlaque, turnFlag, foeHandEl, side, logEl, infoEl, hintEl, actbar, handEl, coachEl);
 
-  go(() => h('div', { class: 'screen', style: { animation: 'none' } }, hud), { mode: 'board', music: 'battle' });
+  go(() => h('div', { class: 'screen battle-screen', style: { animation: 'none' } }, hud), { mode: 'board', music: 'battle' });
   view = new BattleView(stage, $('#labels'), ME);
   const portrait = window.innerWidth < 900;
   stage.setViewShift(portrait ? 60 : Math.round(window.innerHeight * 0.1));

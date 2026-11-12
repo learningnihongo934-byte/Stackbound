@@ -20,6 +20,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #140c08; col
 #labels { position: fixed; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
 #ui { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
 #ui > * { pointer-events: auto; }
+#ui > .battle-screen { pointer-events: none; }
 #overlay { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
 #overlay > * { pointer-events: auto; }
 .ic { width: 1em; height: 1em; display: inline-block; vertical-align: -0.14em; flex: none; }
@@ -314,7 +315,7 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 .foehand .card { --w: 46px; margin: 0 -8px; cursor: default; }
 .actbar { position: absolute; left: 50%; bottom: 244px; transform: translateX(-50%); display: flex; gap: 8px; padding: 8px; align-items: center; animation: popIn .25s; }
 .actbar .apinfo { font-family: var(--f-pixel); font-size: 12px; padding: 0 8px; }
-.hint { position: absolute; left: 50%; bottom: 196px; transform: translateX(-50%); padding: 7px 16px 6px; font-weight: 800; font-size: 15px; white-space: nowrap; pointer-events: none; }
+.hint { z-index: 12; position: absolute; left: 50%; bottom: 196px; transform: translateX(-50%); padding: 7px 16px 6px; font-weight: 800; font-size: 15px; white-space: nowrap; pointer-events: none; }
 .facing-pick { position: absolute; width: 0; height: 0; z-index: 6; }
 .facing-pick button { position: absolute; transform: translate(-50%, -50%); width: 46px; height: 46px; border-radius: 50%; background: var(--yellow); border: 2.5px solid var(--ink); box-shadow: 0 4px 0 var(--ink); font-size: 22px; cursor: pointer; display: grid; place-items: center; }
 .facing-pick button:hover { background: #ffd570; transform: translate(-50%, -50%) scale(1.12); }
